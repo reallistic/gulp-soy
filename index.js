@@ -17,6 +17,7 @@ module.exports = function (options) {
 
     var tmp = path.resolve(options.tmpDir || path.join(os.tmpdir(), "soy")),
         addSoyUtils = options.hasOwnProperty("soyutils") ? options.soyutils : true,
+        compilerFlags = options.hasOwnProperty("flags") ? options.flags : [],
         compiler = path.resolve(closureTemplates["SoyToJsSrcCompiler.jar"]),
         soyUtils = path.resolve(closureTemplates["soyutils.js"]),
         files = [];
@@ -37,10 +38,12 @@ module.exports = function (options) {
             args = [
                 "-classpath", compiler,
                 "com.google.template.soy.SoyToJsSrcCompiler",
-                "--codeStyle", "concat",
+                "--codeStyle", "concat"];
+            args.concat(compilerFlags);
+            args.concat([
                 "--outputPathFormat", output,
                 input
-            ];
+            ]);
 
         cp = spawn("java", args);
 
@@ -91,7 +94,7 @@ module.exports = function (options) {
         }
 
         files.forEach(function (file) {
-            var hash = md5(file.contents.toString()),
+            var hash = md5(file.contents.toString() + compilerFlags.join(" ")),
                 pathHash = path.join(tmp, hash),
                 callback = function () {
                     newFile(file, pathHash);
