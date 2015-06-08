@@ -39,8 +39,8 @@ module.exports = function (options) {
                 "-classpath", compiler,
                 "com.google.template.soy.SoyToJsSrcCompiler",
                 "--codeStyle", "concat"];
-            args.concat(compilerFlags);
-            args.concat([
+            args = args.concat(compilerFlags);
+            args = args.concat([
                 "--outputPathFormat", output,
                 input
             ]);
