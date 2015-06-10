@@ -20,8 +20,8 @@ module.exports = function (options) {
         compilerFlags = options.hasOwnProperty("flags") ? options.flags : [],
         compiler = path.resolve(closureTemplates["SoyToJsSrcCompiler.jar"]),
         files = [];
-    var useProvide = shouldcompilerFlags.indexOf('--shouldProvideRequireSoyNamespaces')
-    var soyUtils = path.resolve(closureTemplates[useProvide ? "soyutils_usegoog.js" : "soyutils.js"]),
+    var useProvide = shouldcompilerFlags.indexOf('--shouldProvideRequireSoyNamespaces');
+    var soyUtils = path.resolve(closureTemplates[useProvide ? "soyutils_usegoog.js" : "soyutils.js"]);
 
     function write (file){
         if (!file.isNull()) {
