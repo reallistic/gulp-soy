@@ -1,113 +1,117 @@
-var through = require("through"),
-    gutil = require("gulp-util"),
-    Buffer = require("buffer").Buffer,
+var through = require('through2'),
+    gutil = require('gulp-util'),
+    Buffer = require('buffer').Buffer,
     PluginError = gutil.PluginError,
-    fs = require("fs"),
-    os = require("os"),
+    fs = require('fs'),
+    os = require('os'),
     File = gutil.File,
-    closureTemplates = require("closure-templates"),
-    path = require("path"),
-    spawn = require("child_process").spawn,
-    md5 = require("MD5");
+    closureTemplates = require('closure-templates'),
+    path = require('path'),
+    spawn = require('child_process').spawn,
+    md5 = require('MD5');
 
 module.exports = function (options) {
-    if (typeof options !== "object") {
+    if (typeof options !== 'object') {
         options = {};
     }
 
-    var tmp = path.resolve(options.tmpDir || path.join(os.tmpdir(), "soy")),
-        addSoyUtils = options.hasOwnProperty("soyutils") ? options.soyutils : true,
-        compilerFlags = options.hasOwnProperty("flags") ? options.flags : [],
-        compiler = path.resolve(closureTemplates["SoyToJsSrcCompiler.jar"]),
+    var tmp = path.resolve(options.tmpDir || path.join(os.tmpdir(), 'soy')),
+        addSoyUtils = options.hasOwnProperty('soyutils') ? options.soyutils : true,
+        compilerFlags = options.hasOwnProperty('flags') ? options.flags : [],
+        compiler = path.resolve(options.compilerPath || closureTemplates['SoyToJsSrcCompiler.jar']),
         files = [];
     var useProvide = compilerFlags.indexOf('--shouldProvideRequireSoyNamespaces') != -1;
-    var soyUtils = path.resolve(closureTemplates[useProvide ? "soyutils_usegoog.js" : "soyutils.js"]);
+    var soyUtils = path.resolve(closureTemplates[useProvide ? 'soyutils_usegoog.js' : 'soyutils.js']);
 
-    function write (file){
-        if (!file.isNull()) {
-            if (file.isStream()) {
-                this.emit("error", new PluginError("gulp-soy",  "Streaming not supported"));
-            } else {
-                files.push(file);
-            }
+    function write(file, enc, cb){
+        if (file.isNull()) {
+            cb();
+            return;
         }
+        if (file.isStream()) {
+            var err = new PluginError('gulp-soy',  'Streaming not supported');
+            this.emit('error', err);
+            cb(err, file);
+            return;
+        }
+        files.push(file);
+        cb();
     }
 
-    function build(self, input, output, callback) {
+    function newFile(file, contentPath, opt_path) {
+        var path = opt_path ? opt_path : file.path.replace(/\.soy$/, '.js');
+        return new File({
+            cwd: file.cwd,
+            base: file.base,
+            path: path,
+            contents: new Buffer(fs.readFileSync(contentPath, 'utf8'))
+        });
+    }
+
+    function emitFiles(self, cb) {
+        if (addSoyUtils && files.length > 0) {
+            var soyPath = path.join(files[0].base, 'soyutils.js');
+            var soyFile = newFile(files[0], soyUtils, soyPath)
+            self.emit('data', soyFile);
+            cb(null, soyFile);
+        }
+        files.forEach(function (file) {
+            var tmpPath = path.join(tmp, path.basename(file.path));
+            var lastFile = newFile(file, tmpPath.replace(/\.soy$/, '.js'));
+            self.emit('data', lastFile);
+            cb(null, lastFile);
+            gutil.log('Out:', lastFile.relative);
+        });
+    }
+
+    function handleFlush(cb) {
+        var self = this;
+
+        if (files.length < 0) {
+            cb();
+            return;
+        }
+
+        var filePaths = files.map(function (file) {
+          return file.path;
+        });
+
         var cp,
-            stderr = "",
+            stderr = '',
+            stdout = '',
             args = [
-                "-classpath", compiler,
-                "com.google.template.soy.SoyToJsSrcCompiler",
-                "--codeStyle", "concat"];
+                '-jar', compiler,
+                '--codeStyle', 'concat'];
             args = args.concat(compilerFlags);
             args = args.concat([
-                "--outputPathFormat", output,
-                input
+                '--outputPathFormat', path.join(tmp, '{INPUT_FILE_NAME_NO_EXT}.js')
             ]);
+            args = args.concat(filePaths);
 
-        cp = spawn("java", args);
+        cp = spawn('java', args);
 
-        cp.stderr.on("data", function (data) {
+        cp.stdout.on('data', function (data) {
+            stdout += data
+        });
+
+        cp.stderr.on('data', function (data) {
             stderr += data
         });
 
-        cp.on("exit", function (exitCode) {
+        cp.on('exit', function (exitCode) {
             if (exitCode) {
-                console.error("Compile error\n", stderr);
-                self.emit("compile", new Error("Error compiling templates"), false);
-                self.emit("end");
-            } else {
-                callback();
+                gutil.log('Compile error\n', stderr);
+                self.emit('error', new Error('Error compiling templates'), false);
             }
-        });
-    }
-
-    function end() {
-        var self = this,
-            count = 0,
-            compiled = [];
-
-        function newFile(file, contentPath) {
-            compiled.push(new File({
-                cwd: file.cwd,
-                base: file.base,
-                path: file.path.replace(/\.soy$/, ".js"),
-                contents: new Buffer(fs.readFileSync(contentPath, "utf8"))
-            }));
-            count += 1;
-            if (count === files.length) {
-                if (addSoyUtils) {
-                    self.emit("data",
-                        new File({
-                            cwd: file.cwd,
-                            base: file.base,
-                            path: path.join(file.base, "soyutils.js"),
-                            contents: new Buffer(fs.readFileSync(soyUtils, "utf8"))
-                        })
-                    );
+            else {
+                if (stdout.length > 0) {
+                    gutil.log('Compilation succeeded\n', stdout);
                 }
-                compiled.forEach(function (file) {
-                    self.emit("data", file);
-                });
-                self.emit("end");
+                emitFiles(self, cb);
             }
-        }
-
-        files.forEach(function (file) {
-            var hash = md5(file.contents.toString() + compilerFlags.join(" ")),
-                pathHash = path.join(tmp, hash),
-                callback = function () {
-                    newFile(file, pathHash);
-                };
-
-            if (fs.existsSync(pathHash)) {
-                callback();
-            } else {
-                build(self, file.path, pathHash, callback);
-            }
+            self.emit('end');
         });
     }
 
-    return through(write, end);
+    return through.obj(write, handleFlush);
 };

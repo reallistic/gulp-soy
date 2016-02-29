@@ -1,4 +1,4 @@
-// This file was automatically generated from aa.soy.
+// This file was automatically generated from a.soy.
 // Please don't edit this file by hand.
 
 if (typeof tpl == 'undefined') { var tpl = {}; }
